@@ -1,301 +1,127 @@
 # threadscollector55
 내가 내 Threads 글 보기 편하려고 만드는 프로젝트
 
-## 프로젝트 목표
-Threads는 최신순 탐색 중심이라 예전 글을 다시 찾기 어렵다. 이 프로젝트의 목표는 **내가 접근 가능한 내 글**을 빠르게 찾는 **개인 아카이브/검색 도구**를 만드는 것이다.
+## 문제 정의
+Threads는 최신순 탐색 중심이라 예전 글을 다시 찾기 어렵다.
+이 프로젝트는 **약관/정책을 우회하는 크롤링**이 아니라,
+내가 접근 가능한 내 글을 더 빨리 찾기 위한 **개인 아카이브/검색 도구**를 목표로 한다.
 
-- 대상: 개인 사용자 1인(Local-first)
-- 핵심 가치: 빠른 재탐색(검색/필터/정렬)
-- 비목표: 비공식 API 우회, 로그인 자동화, 타인 데이터 대량 수집
+## 제품 방향 (핵심)
+"내가 수동으로 캡처"가 아니라,
+**프로젝트가 사용자의 반복 작업을 보조**하도록 만든다.
 
----
+- 사용자는 앱 내에서 "수집 시작"만 누른다.
+- 도구는 사용자가 허용한 범위에서 게시물 단위로 저장 포맷을 만든다.
+- 저장 시점에 텍스트/날짜/링크/태그를 함께 기록해 검색 가능하게 만든다.
 
-## "수집 시작" 동작 정의 (MVP 확정)
-"수집 시작"은 아래 2가지 입력 경로만 지원한다.
+## 수집 전략
+1. **합법/안전 입력 우선**
+   - 공식 데이터 내보내기(Download Your Information) 지원
+   - 수동 추가(링크 + 본문 + 날짜) 지원
+2. **반자동 정리**
+   - 이미지(스크린샷)만 저장하지 않고 텍스트와 메타데이터를 같이 저장
+   - 중복 게시물 병합(링크/본문 해시 기준)
+3. **검색 최적화**
+   - 기간 필터(연/월)
+   - 키워드/태그 검색
+   - 오래된순/최신순/관련도 정렬
 
-### 1) 공식 데이터 내보내기 업로드
-1. 사용자가 Threads/Meta에서 받은 내보내기 파일(예: ZIP)을 업로드
-2. 앱이 ZIP 내부 JSON/HTML 파일을 탐색
-3. 파서가 게시물 단위로 `text`, `created_at`, `permalink`, `media`를 추출
-4. DB에 upsert(중복 병합) 저장
-5. 저장 결과(신규/중복/실패 건수) 리포트 출력
+## MVP 범위
+- Import: JSON/CSV/수동 입력 1개 이상
+- 저장: SQLite
+- 검색: 본문 + 날짜 + 태그
+- UI: 게시물 목록 + 상세 보기
 
-### 2) 수동 입력
-1. 사용자가 `링크 + 본문 + 날짜`를 입력
-2. 앱이 기본 유효성 검사(필수값/날짜 형식)
-3. DB에 저장(중복 키 충돌 시 업데이트 또는 건너뜀)
+## 비목표 (Non-goals)
+- 비공식 API 우회
+- 타인 데이터 대량 수집
+- 로그인 우회/세션 탈취 등 약관 위반 소지 기능
 
-### 절대 포함하지 않는 것
-- 자동 로그인
-- 세션/쿠키 우회 사용
-- 비공식 엔드포인트 호출
+## 저장 용량/배포 전략
+결론부터: **초기에는 서버 없이 로컬 C드라이브(SQLite)로 충분**하다.
 
----
+- 텍스트 중심 데이터는 매우 작다. 게시물 1만~5만 건 수준도 일반적으로 수십~수백 MB 범위에서 관리 가능하다.
+- 용량이 커지는 원인은 대부분 이미지/동영상 원본 보관이다.
+- 따라서 1차 MVP는 "메타데이터 + 원문 텍스트 + 링크" 중심으로 저장하고,
+  미디어는 기본적으로 원본 파일을 복제하지 않거나 썸네일/경로 참조 방식으로 제한한다.
 
-## 데이터 모델 (SQLite 스키마 초안)
-아래는 MVP에서 바로 사용 가능한 스키마다.
+### 추천 운영 단계
+1. **1단계 (개인 사용 시작)**: 로컬 SQLite (`C:\threadscollector\threads.db` 같은 경로)
+2. **2단계 (데이터 증가)**: 주 1회 백업(`.db` 파일 복사 + 압축)
+3. **3단계 (다기기 접근 필요)**: 이때만 소형 서버/클라우드 DB 검토
 
-### 설계 포인트
-- 게시물 고유성: `source_platform + source_post_id` 또는 `permalink`
-- 태그 정규화: `tags` 분리 + `post_tags` M:N
-- 미디어 분리: `media` 테이블로 1:N
-- 검색 최적화: `posts_fts`(FTS5) + 날짜 인덱스
+### 서버가 필요한 시점
+- 여러 사용자 계정을 동시에 운영해야 함
+- 여러 기기에서 실시간 동기화가 필요함
+- 미디어 원본을 대량으로 영구 저장해야 함
 
-### SQL 예시
-```sql
-PRAGMA foreign_keys = ON;
+즉, 현재 목표(내 글 탐색 최적화) 기준으로는
+**로컬 우선(Local-first) 아키텍처가 비용/복잡도 모두 가장 유리**하다.
 
-CREATE TABLE IF NOT EXISTS posts (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  source_platform   TEXT NOT NULL DEFAULT 'threads',
-  source_post_id    TEXT,                           -- 원본에서 추출 가능할 때만 저장
-  permalink         TEXT,                           -- 원문 링크
-  text              TEXT NOT NULL,
-  created_at        TEXT NOT NULL,                  -- ISO-8601 UTC 권장
-  visibility        TEXT DEFAULT 'unknown',
-  content_hash      TEXT NOT NULL,                  -- 본문/링크 기반 해시
-  imported_at       TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+## 다음 단계
+- [ ] 데이터 스키마 확정 (`posts`, `tags`, `media`)
+- [ ] import 파서 1종 구현
+- [ ] 검색 API 구현
+- [ ] 웹 UI 최소 화면 구현
 
-  UNIQUE(source_platform, source_post_id),
-  UNIQUE(permalink),
-  UNIQUE(content_hash)
-);
+## Codex와 협업하는 방식 (처음 사용자용)
+질문한 내용처럼, 이 프로젝트는 보통 아래 순서로 진행된다.
 
-CREATE TABLE IF NOT EXISTS tags (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  name              TEXT NOT NULL,
-  normalized_name   TEXT NOT NULL,
-  UNIQUE(normalized_name)
-);
+1. **당신(오너)이 방향 제시**
+   - 예: "어떤 문제를 먼저 풀지", "정책/법적 제약", "원하는 화면/기능"
+2. **Codex가 기획/설계 제안 + 실제 변경 수행**
+   - 문서/코드 수정, 커밋, PR 메시지 작성까지 진행
+3. **당신이 리뷰 후 피드백**
+   - "이건 수정", "이건 제외", "이 기능 먼저"처럼 우선순위 조정
+4. **반복**
+   - 작은 단위로 계속 개선
 
-CREATE TABLE IF NOT EXISTS post_tags (
-  post_id           INTEGER NOT NULL,
-  tag_id            INTEGER NOT NULL,
-  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (post_id, tag_id),
-  FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
-  FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-);
+즉, "말만 하면 전부 끝"이라기보다,
+**오너(당신)의 의사결정 + Codex의 실행**으로 함께 만드는 방식에 가깝다.
 
-CREATE TABLE IF NOT EXISTS media (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  post_id           INTEGER NOT NULL,
-  media_type        TEXT NOT NULL,                  -- image | video | etc
-  media_url         TEXT,                           -- 원본 참조 URL
-  local_path        TEXT,                           -- 로컬 저장 경로(선택)
-  sort_order        INTEGER NOT NULL DEFAULT 0,
-  width             INTEGER,
-  height            INTEGER,
-  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+### 왜 GitHub에서 변화가 안 보일 수 있나
+- Codex는 이 로컬 작업환경에서 커밋/PR 초안을 만들 수 있지만,
+  실제 원격 GitHub 저장소에 반영(push/merge)은 저장소 연결 상태와 권한에 따라 달라진다.
+- 그래서 일반적으로는:
+  1) Codex가 로컬 커밋 생성
+  2) PR 내용 정리
+  3) 당신이 원격에 push/merge 확인
+  순서로 본다.
 
-  UNIQUE(post_id, media_url),
-  UNIQUE(post_id, local_path),
-  FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
-);
+### 추천 진행 방법 (실전)
+- 먼저 30분만 기획 고정:
+  - "MVP에서 꼭 필요한 3개 기능" 확정
+- 그다음 작업 단위를 잘게 쪼개기:
+  - 예) 1) DB 스키마 2) import 3) 검색 API 4) 목록 UI
+- 매 단위마다:
+  - Codex가 구현/커밋/PR 정리
+  - 당신이 확인 후 다음 단위 진행
 
-CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at);
-CREATE INDEX IF NOT EXISTS idx_posts_imported_at ON posts(imported_at);
-CREATE INDEX IF NOT EXISTS idx_media_post_id ON media(post_id);
-
--- FTS5 가상 테이블 (external content)
-CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
-  text,
-  content='posts',
-  content_rowid='id',
-  tokenize='unicode61'
-);
-
--- 동기화 트리거
-CREATE TRIGGER IF NOT EXISTS posts_ai AFTER INSERT ON posts BEGIN
-  INSERT INTO posts_fts(rowid, text) VALUES (new.id, new.text);
-END;
-
-CREATE TRIGGER IF NOT EXISTS posts_ad AFTER DELETE ON posts BEGIN
-  INSERT INTO posts_fts(posts_fts, rowid, text) VALUES ('delete', old.id, old.text);
-END;
-
-CREATE TRIGGER IF NOT EXISTS posts_au AFTER UPDATE OF text ON posts BEGIN
-  INSERT INTO posts_fts(posts_fts, rowid, text) VALUES ('delete', old.id, old.text);
-  INSERT INTO posts_fts(rowid, text) VALUES (new.id, new.text);
-END;
-```
-
----
-
-## 검색 설계 (SQLite FTS5)
-요구사항: 키워드 검색 + 날짜 범위 + 최신/오래된순 + 상세 조회
-
-### 1) 키워드 + 날짜 범위 + 정렬
-```sql
--- :q, :from_date, :to_date, :sort('newest'|'oldest'), :limit, :offset
-SELECT
-  p.id,
-  p.created_at,
-  p.permalink,
-  snippet(posts_fts, 0, '[', ']', ' … ', 12) AS snippet,
-  bm25(posts_fts) AS score
-FROM posts_fts
-JOIN posts p ON p.id = posts_fts.rowid
-WHERE posts_fts MATCH :q
-  AND p.created_at >= :from_date
-  AND p.created_at <  :to_date
-ORDER BY
-  CASE WHEN :sort = 'newest' THEN p.created_at END DESC,
-  CASE WHEN :sort = 'oldest' THEN p.created_at END ASC,
-  score ASC
-LIMIT :limit OFFSET :offset;
-```
-
-### 2) 키워드 없이 날짜 목록 조회(타임라인 탐색)
-```sql
-SELECT id, created_at, permalink, text
-FROM posts
-WHERE created_at >= :from_date
-  AND created_at <  :to_date
-ORDER BY
-  CASE WHEN :sort = 'newest' THEN created_at END DESC,
-  CASE WHEN :sort = 'oldest' THEN created_at END ASC
-LIMIT :limit OFFSET :offset;
-```
-
-### 3) 상세 조회
-```sql
-SELECT p.*, group_concat(t.name, ', ') AS tags
-FROM posts p
-LEFT JOIN post_tags pt ON pt.post_id = p.id
-LEFT JOIN tags t ON t.id = pt.tag_id
-WHERE p.id = :post_id
-GROUP BY p.id;
-
-SELECT * FROM media WHERE post_id = :post_id ORDER BY sort_order ASC, id ASC;
-```
-
----
-
-## MVP 체크리스트 (구현 범위 고정)
-- [ ] Import 1종 구현
-  - [ ] 공식 내보내기 ZIP(JSON/HTML) 파싱 **또는**
-  - [ ] 수동 입력 폼(링크/본문/날짜)
-- [ ] SQLite 저장
-  - [ ] `posts`, `tags`, `post_tags`, `media` 생성
-  - [ ] UNIQUE 제약 기반 중복 방지
-- [ ] 검색
-  - [ ] FTS5 키워드 검색
-  - [ ] 날짜 범위 필터
-  - [ ] 최신순/오래된순 정렬
-- [ ] UI
-  - [ ] 목록 화면(검색창 + 날짜 필터 + 정렬)
-  - [ ] 상세 화면(본문 + 태그 + 미디어)
-
----
-
-## Threat Model (보안/정책 준수)
-- 로그인 토큰/세션 쿠키 저장 안 함
-- 약관 우회/비공식 API 호출 기능 없음
-- 로컬 우선(Local-first): 기본 데이터 저장 위치는 사용자 로컬 디스크
-- 민감정보 최소 수집: 필요한 메타데이터만 저장
-
----
-
-## 다음 구현 단위 제안 (커밋 단위 4개)
-1. **commit 1: db/schema**
-   - SQLite 마이그레이션 추가 (`posts/tags/post_tags/media/posts_fts`)
-   - 인덱스/트리거/UNIQUE 제약 포함
-2. **commit 2: import/manual + export parser(1종)**
-   - 수동 입력 API/폼
-   - ZIP 파서 1종(JSON 또는 HTML) + upsert
-3. **commit 3: search API**
-   - FTS5 검색 엔드포인트
-   - 날짜 필터/정렬/페이지네이션/상세 조회
-4. **commit 4: MVP UI**
-   - 목록 화면(검색, 필터, 정렬)
-   - 상세 화면(본문, 태그, 미디어)
-
----
-
-## 저장/배포 가이드
-결론: 초기에는 서버 없이 로컬 SQLite로 충분하다.
-
-- 텍스트 중심 데이터는 가볍다.
-- 용량 급증 원인은 이미지/동영상 원본 보관이다.
-- MVP는 원문 텍스트 + 메타데이터 중심 저장을 기본으로 한다.
-
-서버 전환은 아래 조건 충족 시 검토:
-- 다중 사용자
-- 다기기 실시간 동기화
-- 대규모 미디어 원본 장기 보관
+이 방식이 처음 사용할 때 가장 덜 헷갈리고, 결과도 가장 안정적으로 나온다.
 
 
-## 대화/문서/코딩 진행 원칙
-질문한 내용에 대한 답:
-- **계속 README만 하는 게 아니다.** README는 방향 고정용이고, 코딩은 별도 단계에서 바로 진행한다.
-- **모든 대화를 README에 반영하지 않는다.** 문서 반영은 "결정된 내용"만 한다.
-- **대화 자체(아이디어 탐색/고민/질문)는 자유롭게 하고**, 구현 항목이 확정되면 그때 커밋 단위로 개발한다.
+## 지금 당신이 해야 할 일 (아주 간단 버전)
+질문에 대한 답을 먼저 정리하면:
+- **네가 개발 수준을 길게 증명할 필요는 없다.**
+- **"이거 만들어줘"라고 말하면, Codex가 실제 변경(문서/코드/커밋/PR)까지 진행할 수 있다.**
+- 다만 품질을 높이려면, 시작할 때 아래 3가지만 주면 가장 빠르다.
 
-### 어떤 대화가 README에 반영되나?
-아래 3가지 중 하나일 때만 반영:
-1. 제품 범위/정책 같은 **장기 기준**이 바뀜
-2. 구현자가 반드시 따라야 하는 **명세**가 확정됨
-3. 팀 합의된 **운영 규칙**이 생김
+### 시작 입력 3개
+1. 만들 기능 1문장
+   - 예: "내 Threads 글을 날짜+키워드로 검색하는 웹 화면 만들어줘"
+2. 우선순위 1개
+   - 예: "이번 주는 import보다 검색 화면 먼저"
+3. 완료 기준 2~3개
+   - 예: "검색어 입력", "월별 필터", "상세 보기"
 
-그 외 일반 질의응답/아이디어 토론은 README에 자동 반영하지 않는다.
+### GitHub/README는 어떻게 보면 되나
+- 매번 GitHub에서 README를 다 읽을 필요는 없다.
+- 보통은:
+  1) 채팅에서 작업 지시
+  2) Codex가 구현/커밋/PR 정리
+  3) 당신은 결과(변경점/테스트/PR 요약)만 확인
+- 필요할 때만 README를 "기준 문서"로 참고하면 충분하다.
 
-### 코딩 시작 트리거 (이 한 줄이면 충분)
-아래처럼 말하면 바로 코드 작업으로 전환:
-> "README는 여기까지. 이제 commit 1(db/schema)부터 실제 코드로 구현해줘."
-
-### 권장 진행 루프
-1) 짧은 대화로 기능 확정
-2) 코딩(작은 커밋)
-3) 테스트
-4) PR 요약
-5) 다음 기능
-
-즉, 문서는 기준만 잡고, 실제 진도는 **코드 + 테스트** 중심으로 진행한다.
-
----
-
-## 코딩 시작 상태 (현재)
-이번 단계에서 문서만이 아니라 **실제 DB 스키마 코드**를 추가했다.
-
-- `sql/schema.sql`: SQLite + FTS5 + 트리거 정의
-- `src/threadscollector/db.py`: 스키마 로딩/DB 초기화 함수
-- `scripts_init_db.py`: DB 파일 생성 스크립트
-- `tests/test_db_schema.py`: 스키마/UNIQUE/FTS 동작 테스트
-
-실행 예시:
-```bash
-python scripts_init_db.py --db data/threads.db
-python -m unittest discover -s tests -v
-```
-
----
-
-## GitHub에 변경이 안 보일 때 (필수 체크)
-현재처럼 GitHub에서 변화가 안 보이는 가장 흔한 이유는 **원격(remote)이 연결되지 않았거나 push를 안 한 경우**다.
-
-### 1) 상태 확인
-```bash
-git remote -v
-git branch --show-current
-git log --oneline -n 5
-```
-
-- `git remote -v` 결과가 비어 있으면 원격이 없는 상태다.
-- 이 경우 로컬 커밋은 있어도 GitHub 저장소에는 반영되지 않는다.
-
-### 2) 원격 연결
-```bash
-git remote add origin <YOUR_GITHUB_REPO_URL>
-```
-
-### 3) 현재 브랜치 push
-```bash
-git push -u origin work
-```
-
-### 4) GitHub에서 확인
-- 저장소의 `work` 브랜치 또는 PR 탭에서 커밋 반영 확인
-
-핵심: **Codex가 로컬에서 커밋/PR 내용을 준비해도, 원격 push 전에는 GitHub 화면이 바뀌지 않는다.**
+### 바로 다음 액션 (권장)
+아래 한 줄만 보내면 바로 구현 시작 가능:
+> "1차로 SQLite 스키마와 검색 API부터 만들어줘. 완료 기준은 키워드 검색 + 날짜 필터 + 상세조회야."
