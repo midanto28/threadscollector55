@@ -269,3 +269,33 @@ SELECT * FROM media WHERE post_id = :post_id ORDER BY sort_order ASC, id ASC;
 python scripts_init_db.py --db data/threads.db
 python -m unittest discover -s tests -v
 ```
+
+---
+
+## GitHub에 변경이 안 보일 때 (필수 체크)
+현재처럼 GitHub에서 변화가 안 보이는 가장 흔한 이유는 **원격(remote)이 연결되지 않았거나 push를 안 한 경우**다.
+
+### 1) 상태 확인
+```bash
+git remote -v
+git branch --show-current
+git log --oneline -n 5
+```
+
+- `git remote -v` 결과가 비어 있으면 원격이 없는 상태다.
+- 이 경우 로컬 커밋은 있어도 GitHub 저장소에는 반영되지 않는다.
+
+### 2) 원격 연결
+```bash
+git remote add origin <YOUR_GITHUB_REPO_URL>
+```
+
+### 3) 현재 브랜치 push
+```bash
+git push -u origin work
+```
+
+### 4) GitHub에서 확인
+- 저장소의 `work` 브랜치 또는 PR 탭에서 커밋 반영 확인
+
+핵심: **Codex가 로컬에서 커밋/PR 내용을 준비해도, 원격 push 전에는 GitHub 화면이 바뀌지 않는다.**
